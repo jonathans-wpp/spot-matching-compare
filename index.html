@@ -105,7 +105,7 @@
       <li><b>Mirip</b>: sisa yang identitasnya pun beda dipasangkan ke baris paling mirip dengan Media_ID dan Show_Date sama (minimal separuh kolom sama). Ini tebakan, cek manual.</li>
       <li>Sisanya: <b>hanya di sistem</b> / <b>hanya di September</b>.</li>
     </ol>
-    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma. Angka dibandingkan sampai 6 desimal, jadi sisa pembulatan Excel (mis. 1517556.000000104) dianggap sama dengan 1517556.</p>
+    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma. Nilai dibandingkan persis: angka tanpa pembulatan, teks termasuk spasi dan nol di depan.</p>
     <div class="grid">
       <label>SpotMatch · kolom identitas<input type="text" id="spotmatch-ident"></label>
       <label>SpotMatch · kolom diabaikan<input type="text" id="spotmatch-ignore"></label>
@@ -126,11 +126,8 @@
 
 <script>
 const BB_RE = /(?<!\d)\d{10}(?!\d)/;
-const NUM_RE = /^-?[\d,]*\.?\d+$/;
 const ROW_LIMIT = 500;
 const PAIR_LIMIT = 4000000;
-// Excel macros leave float noise such as 1517556.000000104; anything finer than this is not a real difference.
-const DECIMALS = 6;
 const STATUS_ORDER = { diff: 0, unpaired: 1, same: 2 };
 const ANCHOR_COLS = ['Media_ID', 'Show_Date'];
 const DEFAULT_SETTINGS = {
@@ -138,22 +135,16 @@ const DEFAULT_SETTINGS = {
   spotplan: { ident: ['Media_ID', 'Show_Date', 'Start_Time', 'Length', 'Material_ID'], ignore: ['Item', 'ID', 'Adept_Code', 'Row_ID'] },
 };
 
+// Values are compared exactly: String(number) is the shortest text that round-trips to the same
+// double, so two different numbers never look alike, and text keeps its spaces and leading zeros.
 function norm(v) {
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-  let n;
-  if (typeof v === 'number') n = v;
-  else {
-    const t = String(v ?? '').trim();
-    if (!NUM_RE.test(t)) return t;
-    n = Number(t.replace(/,/g, ''));
-  }
-  if (!Number.isFinite(n)) return String(v).trim();
-  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(DECIMALS)));
+  return String(v ?? '');
 }
 
 function toTable(rows) {
   const kept = [];
-  rows.forEach((r, i) => { if (r.some(v => norm(v) !== '')) kept.push({ line: i + 1, r }); });
+  rows.forEach((r, i) => { if (r.some(v => norm(v).trim() !== '')) kept.push({ line: i + 1, r }); });
   if (!kept.length) return { header: [], body: [] };
   const seen = {};
   const header = kept[0].r.map(h => {
