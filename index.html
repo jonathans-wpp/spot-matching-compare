@@ -500,22 +500,28 @@ const HOW = {
   mirip: '<span class="tag warn" title="identitas beda, dipasangkan karena paling mirip">mirip</span>',
 };
 
+// Two rows per spot, system above September; `extra` adds leading cells such as how the pair was made.
+function pairRows(r, a, b, diffs = [], extra = () => '') {
+  const row = (label, it, cls, first) => `<tr class="${cls}"><td><b>${label}</b></td><td>${it.line}</td>
+    ${extra(first)}${cells(r, it, diffs)}</tr>`;
+  return row('Sistem', a, 'pa', true) + row('September', b, 'pb', false);
+}
+
 function pairsTable(r) {
   if (!r.pairs.length) return '';
-  const line = (label, it, p, cls, first) => `<tr class="${cls}"><td><b>${label}</b></td><td>${it.line}</td>
-    <td>${first ? HOW[p.how] : ''}</td>${cells(r, it, p.diffs)}</tr>`;
   return `<h3>Spot sama, isi beda (${r.pairs.length}${limitNote(r.pairs.length)})</h3>
     <p class="note muted">Tiap spot 2 baris: sistem di atas, September di bawah. Sel merah = nilai yang beda. Kolom abu-abu = nomor urut, tidak dibanding.</p>
     <div class="scroll"><table class="pairs"><tr><th>File</th><th>Baris</th><th>Dipasang lewat</th>${head(r)}</tr>
-    ${r.pairs.slice(0, ROW_LIMIT).map(p => line('Sistem', p.a, p, 'pa', true) + line('September', p.b, p, 'pb', false)).join('')}
+    ${r.pairs.slice(0, ROW_LIMIT).map(p => pairRows(r, p.a, p.b, p.diffs, first => `<td>${first ? HOW[p.how] : ''}</td>`)).join('')}
     </table></div>`;
 }
 
 function matchedTable(r) {
   if (!r.matched.length) return '';
-  return `<details><summary>Spot yang cocok (${r.matched.length}${limitNote(r.matched.length)})</summary>
-    <div class="scroll"><table><tr><th>Baris sistem</th><th>Baris Sept</th>${head(r)}</tr>
-    ${r.matched.slice(0, ROW_LIMIT).map(m => `<tr><td>${m.a.line}</td><td>${m.b.line}</td>${cells(r, m.a)}</tr>`).join('')}
+  return `<details open><summary>Spot yang cocok (${r.matched.length}${limitNote(r.matched.length)})</summary>
+    <p class="note muted">Tiap spot 2 baris: sistem di atas, September di bawah. Semua kolom yang dibanding sama persis.</p>
+    <div class="scroll"><table class="pairs"><tr><th>File</th><th>Baris</th>${head(r)}</tr>
+    ${r.matched.slice(0, ROW_LIMIT).map(m => pairRows(r, m.a, m.b)).join('')}
     </table></div></details>`;
 }
 
@@ -534,7 +540,7 @@ function detail(res) {
       r.tooMany ? 'Terlalu banyak baris tanpa pasangan untuk dicari yang mirip. Cek kolom identitas di pengaturan.' : '',
     ].filter(Boolean).map(t => `<p class="note">${esc(t)}</p>`).join('');
     const tag = r.same ? '<span class="tag good">sama</span>' : `<span class="tag bad">${r.diffCount} spot beda</span>`;
-    return `<details class="sheetblock"${r.same ? '' : ' open'}>
+    return `<details class="sheetblock" open>
       <summary class="sheethead">${esc(s.name)} ${tag} <span class="muted">· ${esc(s.a.sheetName)} ↔ ${esc(s.b.sheetName)}</span></summary>
       <div class="sheetbody">${notes}
       ${pairsTable(r)}
