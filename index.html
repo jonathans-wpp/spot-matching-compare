@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banding Drop File</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6ec;
+    --accent: #2f5bea; --accent-soft: #e8eefe;
+    --good: #1c7c4a; --good-soft: #e3f4ea; --bad: #b42318; --bad-soft: #fdeceb;
+    --warn: #8a5a00; --warn-soft: #fdf3dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1a1e26; --text: #e6e9ef; --muted: #9aa3b5; --line: #2b313d;
+      --accent: #7c9bff; --accent-soft: #1f2a4a;
+      --good: #6fd39c; --good-soft: #15301f; --bad: #ff8a80; --bad-soft: #3a1b19;
+      --warn: #f1c25b; --warn-soft: #362a10;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .drops { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 700px) { .drops { grid-template-columns: 1fr; } }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 16px; cursor: pointer;
+    background: var(--card); transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { display: block; }
+  .drop .hint { color: var(--muted); font-size: 13px; }
+  .drop ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; max-height: 120px; overflow: auto; }
+  .drop button.rm { padding: 0 6px; border: none; background: none; color: var(--muted); font-size: 15px; line-height: 1; }
+  .drop button.rm:hover { color: var(--bad); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .settings { margin-bottom: 12px; }
+  .settings .how { margin: 8px 0; padding-left: 20px; }
+  .settings .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 700px) { .settings .grid { grid-template-columns: 1fr; } }
+  .settings label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+  .settings input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text); font: inherit; }
+  td.seq, th.seq { color: var(--muted); font-style: italic; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+    color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  label.check { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .stat b { font-size: 18px; margin-right: 4px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: var(--accent-soft); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.good { background: var(--good-soft); color: var(--good); }
+  .tag.bad { background: var(--bad-soft); color: var(--bad); }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .sheet { white-space: nowrap; }
+  .muted { color: var(--muted); }
+  tr.detail > td { background: var(--bg); }
+  .detail h3 { font-size: 14px; margin: 12px 0 6px; }
+  .detail table { background: var(--card); }
+  .diff { background: var(--bad-soft); color: var(--bad); font-weight: 600; }
+  tr.row.open td { background: var(--accent-soft); }
+  table.pairs tr.pa td { border-bottom-style: dashed; }
+  table.pairs tr.pb td { border-bottom: 2px solid var(--line); }
+  tr.detail table td { white-space: nowrap; }
+  .sheetblock { margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .sheetblock > .sheethead { padding: 10px 14px; font-size: 15px; }
+  .sheetblock[open] > .sheethead { border-bottom: 1px solid var(--line); }
+  .sheetbody { padding: 4px 14px 14px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .note { margin: 4px 0; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Banding Drop File</h1>
+  <p class="sub">Pilih Drop File sistem dan file September. File dipasangkan lewat nomor BB (10 digit), lalu dibandingkan per sheet tanpa peduli urutan baris dan kolom. File hanya dibaca di browser ini, tidak dikirim ke mana pun.</p>
+
+  <div class="drops">
+    <div class="drop" id="dropA"><strong>Sistem</strong><span class="hint">Drop file .xlsx di sini atau klik untuk memilih (boleh banyak, termasuk file Download all)</span><ul></ul></div>
+    <div class="drop" id="dropB"><strong>September</strong><span class="hint">Drop file .xlsx / .xls di sini atau klik untuk memilih (boleh banyak)</span><ul></ul></div>
+  </div>
+  <input type="file" id="pickA" multiple accept=".xlsx,.xlsm,.xls" hidden>
+  <input type="file" id="pickB" multiple accept=".xlsx,.xlsm,.xls" hidden>
+  <p class="note" id="storeNote" hidden><span class="tag warn">Perhatian</span> Data tidak bisa disimpan di browser ini, akan hilang saat halaman di-refresh.</p>
+
+  <details class="card settings">
+    <summary>Cara mencocokkan baris (bisa diubah)</summary>
+    <ol class="how">
+      <li><b>Cocok</b>: baris sistem dan September yang semua datanya sama, di urutan mana pun.</li>
+      <li><b>Spot sama, isi beda</b>: sisa baris dipasangkan lewat <b>kolom identitas</b> spot (channel, tanggal, jam tayang). Sel yang beda ditandai merah.</li>
+      <li><b>Mirip</b>: sisa yang identitasnya pun beda dipasangkan ke baris paling mirip dengan Media_ID dan Show_Date sama (minimal separuh kolom sama). Ini tebakan, cek manual.</li>
+      <li>Sisanya: <b>hanya di sistem</b> / <b>hanya di September</b>.</li>
+    </ol>
+    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma.</p>
+    <div class="grid">
+      <label>SpotMatch · kolom identitas<input type="text" id="spotmatch-ident"></label>
+      <label>SpotMatch · kolom diabaikan<input type="text" id="spotmatch-ignore"></label>
+      <label>SpotPlan · kolom identitas<input type="text" id="spotplan-ident"></label>
+      <label>SpotPlan · kolom diabaikan<input type="text" id="spotplan-ignore"></label>
+    </div>
+  </details>
+
+  <div class="bar">
+    <button class="primary" id="run" disabled>Bandingkan</button>
+    <button id="csv" disabled>Download CSV beda</button>
+    <button id="reset">Reset</button>
+    <label class="check"><input type="checkbox" id="onlyDiff"> Hanya yang beda</label>
+  </div>
+
+  <div id="out"><div class="card empty">Belum ada hasil.</div></div>
+</main>
+
+<script>
+const BB_RE = /(?<!\d)\d{10}(?!\d)/;
+const NUM_RE = /^-?[\d,]*\.?\d+$/;
+const ROW_LIMIT = 500;
+const PAIR_LIMIT = 4000000;
+const STATUS_ORDER = { diff: 0, unpaired: 1, same: 2 };
+const ANCHOR_COLS = ['Media_ID', 'Show_Date'];
+const DEFAULT_SETTINGS = {
+  spotmatch: { ident: ['Media_ID', 'Show_Date', 'Actual_Time'], ignore: ['Code', 'Item', 'ID'] },
+  spotplan: { ident: ['Media_ID', 'Show_Date', 'Start_Time', 'Length', 'Material_ID'], ignore: ['Item', 'ID', 'Adept_Code', 'Row_ID'] },
+};
+
+function norm(v) {
+  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+  let n;
+  if (typeof v === 'number') n = v;
+  else {
+    const t = String(v ?? '').trim();
+    if (!NUM_RE.test(t)) return t;
+    n = Number(t.replace(/,/g, ''));
+  }
+  if (!Number.isFinite(n)) return String(v).trim();
+  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(9)));
+}
+
+function toTable(rows) {
+  const kept = [];
+  rows.forEach((r, i) => { if (r.some(v => norm(v) !== '')) kept.push({ line: i + 1, r }); });
+  if (!kept.length) return { header: [], body: [] };
+  const seen = {};
+  const header = kept[0].r.map(h => {
+    const name = String(h).trim();
+    seen[name] = (seen[name] || 0) + 1;
+    return seen[name] === 1 ? name : `${name}#${seen[name]}`;
+  });
+  const body = kept.slice(1).map(({ line, r }) => {
+    const row = {};
+    header.forEach((h, i) => { row[h] = norm(r[i] ?? ''); });
+    return { line, row };
+  });
+  return { header, body };
+}
+
+function greedyPair(listA, listB, cols, accept, how) {
+  const cand = [];
+  listA.forEach((a, i) => listB.forEach((b, j) => {
+    if (!accept(a, b)) return;
+    cand.push({ i, j, score: cols.reduce((n, c) => n + (a.row[c] === b.row[c]), 0) });
+  }));
+  cand.sort((x, y) => y.score - x.score || x.i - y.i || x.j - y.j);
+  const usedA = new Set(), usedB = new Set(), pairs = [];
+  cand.forEach(({ i, j }) => {
+    if (usedA.has(i) || usedB.has(j)) return;
+    usedA.add(i); usedB.add(j);
+    const a = listA[i], b = listB[j];
+    pairs.push({ a, b, how, diffs: cols.filter(c => a.row[c] !== b.row[c]) });
+  });
+  return {
+    pairs,
+    restA: listA.filter((_, i) => !usedA.has(i)),
+    restB: listB.filter((_, j) => !usedB.has(j)),
+  };
+}
+
+function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [] }) {
+  const A = toTable(rowsA), B = toTable(rowsB);
+  const shared = A.header.filter(h => B.header.includes(h));
+  const ignored = shared.filter(h => cfg.ignore.includes(h));
+  const cols = shared.filter(h => !ignored.includes(h));
+  const group = body => {
+    const m = new Map();
+    body.forEach(({ line, row }) => {
+      const k = JSON.stringify(cols.map(c => row[c]));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push({ line, row });
+    });
+    return m;
+  };
+  const gA = group(A.body), gB = group(B.body);
+  const matched = [], leftA = [], leftB = [];
+  gA.forEach((items, k) => {
+    const other = gB.get(k) || [];
+    const n = Math.min(items.length, other.length);
+    for (let i = 0; i < n; i++) matched.push({ a: items[i], b: other[i] });
+    leftA.push(...items.slice(n));
+  });
+  gB.forEach((items, k) => leftB.push(...items.slice(gA.get(k)?.length || 0)));
+  matched.sort((x, y) => x.a.line - y.a.line);
+
+  const identMissing = cfg.ident.filter(k => !cols.includes(k));
+  const pairs = [];
+  let restA = leftA, restB = leftB;
+  if (cfg.ident.length && !identMissing.length) {
+    const idKey = it => JSON.stringify(cfg.ident.map(c => it.row[c]));
+    const poolB = new Map();
+    restB.forEach(b => { if (!poolB.has(idKey(b))) poolB.set(idKey(b), []); poolB.get(idKey(b)).push(b); });
+    const poolA = new Map();
+    restA.forEach(a => { if (!poolA.has(idKey(a))) poolA.set(idKey(a), []); poolA.get(idKey(a)).push(a); });
+    const nextA = [], nextB = [];
+    poolA.forEach((as, k) => {
+      const r = greedyPair(as, poolB.get(k) || [], cols, () => true, 'identitas');
+      pairs.push(...r.pairs); nextA.push(...r.restA); nextB.push(...r.restB);
+      poolB.delete(k);
+    });
+    poolB.forEach(bs => nextB.push(...bs));
+    restA = nextA; restB = nextB;
+  }
+
+  let tooMany = false;
+  if (restA.length && restB.length) {
+    if (restA.length * restB.length > PAIR_LIMIT) tooMany = true;
+    else {
+      const anchor = ANCHOR_COLS.filter(c => cols.includes(c));
+      const minSame = Math.ceil(cols.length / 2);
+      const r = greedyPair(restA, restB, cols, (a, b) => anchor.every(c => a.row[c] === b.row[c])
+        && cols.reduce((n, c) => n + (a.row[c] === b.row[c]), 0) >= minSame, 'mirip');
+      pairs.push(...r.pairs); restA = r.restA; restB = r.restB;
+    }
+  }
+  const byLine = (x, y) => x.line - y.line;
+  restA.sort(byLine); restB.sort(byLine);
+  pairs.sort((x, y) => x.a.line - y.a.line);
+
+  const diffCols = {};
+  pairs.forEach(p => p.diffs.forEach(c => { diffCols[c] = (diffCols[c] || 0) + 1; }));
+  return {
+    cols, shared, ignored, ident: cfg.ident, identMissing, matched, pairs, restA, restB, tooMany,
+    diffCols: Object.entries(diffCols).sort((x, y) => y[1] - x[1]),
+    onlyColsA: A.header.filter(h => !B.header.includes(h)),
+    onlyColsB: B.header.filter(h => !A.header.includes(h)),
+    countA: A.body.length, countB: B.body.length,
+    diffCount: pairs.length + restA.length + restB.length,
+    same: !leftA.length && !leftB.length,
+  };
+}
+
+function splitUnits(fileName, sheets) {
+  const fileBB = fileName.match(BB_RE)?.[0] || null;
+  return sheets.map(({ name, rows }) => {
+    const m = name.trim().match(/^(.*?)\s+(\d{10})$/);
+    return {
+      bb: m ? m[2] : fileBB,
+      kind: (m ? m[1] : name).replace(/\s+/g, '').toLowerCase(),
+      sheetName: name, fileName, rows,
+    };
+  });
+}
+
+function buildGroups(unitsA, unitsB) {
+  const groups = new Map();
+  const warnings = [];
+  const add = (u, side) => {
+    if (!u.bb) { warnings.push(`Nomor BB tidak ditemukan di nama file "${u.fileName}" (sheet ${u.sheetName}), dilewati.`); return; }
+    if (!groups.has(u.bb)) groups.set(u.bb, { bb: u.bb, A: new Map(), B: new Map(), filesA: new Set(), filesB: new Set() });
+    const g = groups.get(u.bb);
+    if (g[side].has(u.kind)) warnings.push(`BB ${u.bb}: sheet "${u.sheetName}" muncul lebih dari sekali di ${side === 'A' ? 'Sistem' : 'September'} (${g[side].get(u.kind).fileName} dan ${u.fileName}); yang terakhir dipakai.`);
+    g[side].set(u.kind, u);
+    g[side === 'A' ? 'filesA' : 'filesB'].add(u.fileName);
+  };
+  unitsA.forEach(u => add(u, 'A'));
+  unitsB.forEach(u => add(u, 'B'));
+  return { groups: [...groups.values()].sort((x, y) => x.bb.localeCompare(y.bb)), warnings };
+}
+
+function compareAll(unitsA, unitsB, settings = DEFAULT_SETTINGS) {
+  const { groups, warnings } = buildGroups(unitsA, unitsB);
+  const results = groups.map(g => {
+    const kinds = [...new Set([...g.A.keys(), ...g.B.keys()])];
+    const sheets = kinds.map(kind => {
+      const a = g.A.get(kind), b = g.B.get(kind);
+      return { kind, name: (a || b).sheetName.replace(/\s+\d{10}$/, ''), a, b,
+        result: a && b ? compareTables(a.rows, b.rows, settings[kind]) : null };
+    });
+    const compared = sheets.filter(s => s.result);
+    const status = !compared.length ? 'unpaired'
+      : compared.every(s => s.result.same) ? 'same' : 'diff';
+    const diffCount = compared.reduce((n, s) => n + s.result.diffCount, 0);
+    return { bb: g.bb, filesA: [...g.filesA], filesB: [...g.filesB], sheets, status, diffCount };
+  });
+  results.sort((x, y) => STATUS_ORDER[x.status] - STATUS_ORDER[y.status]
+    || y.diffCount - x.diffCount || x.bb.localeCompare(y.bb));
+  return { results, warnings };
+}
+</script>
+
+<script>
+const state = { A: [], B: [], results: null };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Parsed sheets go to IndexedDB because they easily exceed the ~5 MB localStorage quota.
+const DB_NAME = 'banding-drop-file', STORE = 'files', PREFS_KEY = 'banding-drop-file:prefs';
+
+function storageFailed(e) {
+  console.error('Penyimpanan browser gagal:', e);
+  $('storeNote').hidden = false;
+}
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbRun(mode, fn) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    const req = fn(tx.objectStore(STORE));
+    tx.oncomplete = () => { db.close(); resolve(req?.result); };
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function saveFiles() {
+  try {
+    await dbRun('readwrite', s => { s.put(state.A, 'A'); s.put(state.B, 'B'); });
+  } catch (e) {
+    storageFailed(e);
+  }
+}
+
+const loadFiles = () => Promise.all(['A', 'B'].map(side => dbRun('readonly', s => s.get(side))));
+
+async function readFile(file) {
+  const book = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  return book.SheetNames.map(name => {
+    const ws = book.Sheets[name];
+    const firstRow = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r : 0;
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '', blankrows: true });
+    return { name, rows: [...Array(firstRow).fill([]), ...rows] };
+  });
+}
+
+// Callers pass a copy: the live FileList empties once the input is cleared or the drop event ends.
+async function addFiles(side, files) {
+  for (const file of files) {
+    try {
+      state[side] = state[side].filter(f => f.name !== file.name);
+      state[side].push({ name: file.name, sheets: await readFile(file) });
+    } catch (e) {
+      alert(`Gagal membaca ${file.name}: ${e.message}`);
+    }
+  }
+  filesChanged();
+}
+
+// Old results no longer describe the current files, so they are dropped until the next compare.
+function filesChanged() {
+  state.results = null;
+  $('csv').disabled = true;
+  render();
+  renderFileLists();
+  savePrefs();
+  saveFiles();
+}
+
+function renderFileLists() {
+  for (const side of ['A', 'B']) {
+    $('drop' + side).querySelector('ul').innerHTML = state[side]
+      .map(f => `<li>${esc(f.name)} <span class="muted">(${f.sheets.length} sheet)</span>
+        <button class="rm" data-name="${esc(f.name)}" title="Hapus file">×</button></li>`).join('');
+  }
+  $('run').disabled = !(state.A.length && state.B.length);
+}
+
+for (const side of ['A', 'B']) {
+  const drop = $('drop' + side), pick = $('pick' + side);
+  drop.addEventListener('click', () => pick.click());
+  drop.querySelector('ul').addEventListener('click', e => {
+    const btn = e.target.closest('button.rm');
+    if (!btn) return;
+    e.stopPropagation();
+    state[side] = state[side].filter(f => f.name !== btn.dataset.name);
+    filesChanged();
+  });
+  pick.addEventListener('change', () => { addFiles(side, [...pick.files]); pick.value = ''; });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addFiles(side, [...e.dataTransfer.files]); });
+}
+
+const splitList = s => s.split(',').map(x => x.trim()).filter(Boolean);
+const settingInputs = () => [...document.querySelectorAll('.settings input')];
+
+function loadPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
+  } catch (e) {
+    storageFailed(e);
+    return {};
+  }
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      inputs: Object.fromEntries(settingInputs().map(i => [i.id, i.value])),
+      onlyDiff: $('onlyDiff').checked,
+      ran: !!state.results,
+    }));
+  } catch (e) {
+    storageFailed(e);
+  }
+}
+
+function applyPrefs(prefs) {
+  Object.entries(DEFAULT_SETTINGS).forEach(([kind, cfg]) => {
+    $(`${kind}-ident`).value = prefs.inputs?.[`${kind}-ident`] ?? cfg.ident.join(', ');
+    $(`${kind}-ignore`).value = prefs.inputs?.[`${kind}-ignore`] ?? cfg.ignore.join(', ');
+  });
+  $('onlyDiff').checked = !!prefs.onlyDiff;
+}
+
+const readSettings = () => Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(kind => [kind, {
+  ident: splitList($(`${kind}-ident`).value),
+  ignore: splitList($(`${kind}-ignore`).value),
+}]));
+const units = side => state[side].flatMap(f => splitUnits(f.name, f.sheets));
+
+function runCompare() {
+  state.results = compareAll(units('A'), units('B'), readSettings());
+  $('csv').disabled = !state.results.results.some(r => r.status === 'diff');
+  render();
+  savePrefs();
+}
+
+$('run').addEventListener('click', runCompare);
+$('onlyDiff').addEventListener('change', () => { render(); savePrefs(); });
+settingInputs().forEach(i => i.addEventListener('input', savePrefs));
+$('reset').addEventListener('click', () => {
+  state.A = []; state.B = [];
+  try { localStorage.removeItem(PREFS_KEY); } catch (e) { storageFailed(e); }
+  applyPrefs({});
+  filesChanged();
+});
+
+const prefs = loadPrefs();
+applyPrefs(prefs);
+loadFiles().then(([A, B]) => {
+  state.A = A || []; state.B = B || [];
+}, storageFailed).finally(() => {
+  renderFileLists();
+  if (prefs.ran && state.A.length && state.B.length) runCompare();
+});
+
+const side = s => (s.a ? 'Sistem' : 'September');
+const limitNote = n => (n > ROW_LIMIT ? `, tampil ${ROW_LIMIT} pertama` : '');
+const cellText = v => (v === '' ? '<span class="muted">(kosong)</span>' : esc(v));
+
+function sheetCell(s) {
+  if (!s.result) return `<div class="sheet"><b>${esc(s.name)}</b> <span class="muted">hanya di ${side(s)}, tidak dibanding</span></div>`;
+  const r = s.result;
+  const parts = [`${r.matched.length} cocok`];
+  if (r.pairs.length) parts.push(`${r.pairs.length} isi beda`);
+  if (r.restA.length) parts.push(`${r.restA.length} hanya sistem`);
+  if (r.restB.length) parts.push(`${r.restB.length} hanya Sept`);
+  const tag = r.same ? '<span class="tag good">sama</span>' : `<span class="tag bad">${r.diffCount} spot beda</span>`;
+  return `<div class="sheet"><b>${esc(s.name)}</b> ${tag} <span class="muted">${parts.join(' · ')}</span></div>`;
+}
+
+const head = r => r.shared.map(c => `<th${r.ignored.includes(c) ? ' class="seq" title="nomor urut, tidak dibanding"' : ''}>${esc(c)}</th>`).join('');
+const cells = (r, it, diffs = []) => r.shared.map(c => {
+  const cls = r.ignored.includes(c) ? 'seq' : diffs.includes(c) ? 'diff' : '';
+  return `<td${cls ? ` class="${cls}"` : ''}>${cellText(it.row[c])}</td>`;
+}).join('');
+
+function rowsTable(r, items, title) {
+  if (!items.length) return '';
+  return `<h3>${esc(title)} (${items.length}${limitNote(items.length)})</h3>
+    <div class="scroll"><table><tr><th>Baris</th>${head(r)}</tr>
+    ${items.slice(0, ROW_LIMIT).map(it => `<tr><td>${it.line}</td>${cells(r, it)}</tr>`).join('')}
+    </table></div>`;
+}
+
+const HOW = {
+  identitas: '<span class="tag good" title="kolom identitas sama">identitas sama</span>',
+  mirip: '<span class="tag warn" title="identitas beda, dipasangkan karena paling mirip">mirip</span>',
+};
+
+function pairsTable(r) {
+  if (!r.pairs.length) return '';
+  const line = (label, it, p, cls, first) => `<tr class="${cls}"><td><b>${label}</b></td><td>${it.line}</td>
+    <td>${first ? HOW[p.how] : ''}</td>${cells(r, it, p.diffs)}</tr>`;
+  return `<h3>Spot sama, isi beda (${r.pairs.length}${limitNote(r.pairs.length)})</h3>
+    <p class="note muted">Tiap spot 2 baris: sistem di atas, September di bawah. Sel merah = nilai yang beda. Kolom abu-abu = nomor urut, tidak dibanding.</p>
+    <div class="scroll"><table class="pairs"><tr><th>File</th><th>Baris</th><th>Dipasang lewat</th>${head(r)}</tr>
+    ${r.pairs.slice(0, ROW_LIMIT).map(p => line('Sistem', p.a, p, 'pa', true) + line('September', p.b, p, 'pb', false)).join('')}
+    </table></div>`;
+}
+
+function matchedTable(r) {
+  if (!r.matched.length) return '';
+  return `<details><summary>Spot yang cocok (${r.matched.length}${limitNote(r.matched.length)})</summary>
+    <div class="scroll"><table><tr><th>Baris sistem</th><th>Baris Sept</th>${head(r)}</tr>
+    ${r.matched.slice(0, ROW_LIMIT).map(m => `<tr><td>${m.a.line}</td><td>${m.b.line}</td>${cells(r, m.a)}</tr>`).join('')}
+    </table></div></details>`;
+}
+
+function detail(res) {
+  return res.sheets.map(s => {
+    if (!s.result) return `<h3>${esc(s.name)}</h3><p class="note muted">Sheet ini hanya ada di ${side(s)} (${esc((s.a || s.b).fileName)}), tidak dibanding.</p>`;
+    const r = s.result;
+    const notes = [
+      r.same ? `Semua ${r.matched.length} spot sama.` : `${r.matched.length} spot cocok, ${r.pairs.length} spot isi beda, ${r.restA.length} hanya di sistem, ${r.restB.length} hanya di September.`,
+      r.diffCols.length ? `Kolom yang beda: ${r.diffCols.map(([c, n]) => `${c} (${n} spot)`).join(', ')}` : '',
+      r.ident.length && !r.identMissing.length ? `Kolom identitas: ${r.ident.join(', ')}` : '',
+      r.identMissing.length ? `Kolom identitas tidak ada di sheet ini: ${r.identMissing.join(', ')}. Pasangan hanya lewat kemiripan.` : '',
+      r.ignored.length ? `Tidak dibanding (nomor urut): ${r.ignored.join(', ')}` : '',
+      r.onlyColsA.length ? `Kolom hanya di sistem (tidak dibanding): ${r.onlyColsA.join(', ')}` : '',
+      r.onlyColsB.length ? `Kolom hanya di September (tidak dibanding): ${r.onlyColsB.join(', ')}` : '',
+      r.tooMany ? 'Terlalu banyak baris tanpa pasangan untuk dicari yang mirip. Cek kolom identitas di pengaturan.' : '',
+    ].filter(Boolean).map(t => `<p class="note">${esc(t)}</p>`).join('');
+    const tag = r.same ? '<span class="tag good">sama</span>' : `<span class="tag bad">${r.diffCount} spot beda</span>`;
+    return `<details class="sheetblock"${r.same ? '' : ' open'}>
+      <summary class="sheethead">${esc(s.name)} ${tag} <span class="muted">· ${esc(s.a.sheetName)} ↔ ${esc(s.b.sheetName)}</span></summary>
+      <div class="sheetbody">${notes}
+      ${pairsTable(r)}
+      ${rowsTable(r, r.restA, 'Spot hanya di sistem')}
+      ${rowsTable(r, r.restB, 'Spot hanya di September')}
+      ${matchedTable(r)}</div></details>`;
+  }).join('');
+}
+
+function render() {
+  const out = $('out');
+  if (!state.results) { out.innerHTML = '<div class="card empty">Belum ada hasil.</div>'; return; }
+  const { results, warnings } = state.results;
+  const count = st => results.filter(r => r.status === st).length;
+  const list = $('onlyDiff').checked ? results.filter(r => r.status !== 'same') : results;
+  const STATUS = {
+    same: () => '<span class="tag good">Sama</span>',
+    diff: r => `<span class="tag bad">Beda · ${r.diffCount} spot</span>`,
+    unpaired: () => '<span class="tag warn">Tidak ada pasangan</span>',
+  };
+  out.innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${results.length}</b>BB</div>
+      <div class="stat"><b style="color:var(--good)">${count('same')}</b>sama</div>
+      <div class="stat"><b style="color:var(--bad)">${count('diff')}</b>beda</div>
+      <div class="stat"><b style="color:var(--warn)">${count('unpaired')}</b>tanpa pasangan</div>
+    </div>
+    ${warnings.map(w => `<p class="note"><span class="tag warn">Perhatian</span> ${esc(w)}</p>`).join('')}
+    <div class="card scroll"><table>
+      <tr><th>BB</th><th>File sistem</th><th>File September</th><th>Sheet</th><th>Status</th></tr>
+      ${list.length ? list.map((r, i) => `
+        <tr class="row" data-i="${i}"><td><b>${esc(r.bb)}</b></td>
+          <td>${r.filesA.map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
+          <td>${r.filesB.map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
+          <td>${r.sheets.map(sheetCell).join('')}</td><td>${STATUS[r.status](r)}</td></tr>
+        <tr class="detail" data-for="${i}" hidden><td colspan="5"></td></tr>`).join('')
+        : '<tr><td colspan="5" class="empty">Semua sama.</td></tr>'}
+    </table></div>`;
+  const toggle = tr => {
+    const d = out.querySelector(`tr.detail[data-for="${tr.dataset.i}"]`);
+    if (!d.dataset.ready) { d.firstElementChild.innerHTML = detail(list[tr.dataset.i]); d.dataset.ready = '1'; }
+    d.hidden = !d.hidden;
+    tr.classList.toggle('open', !d.hidden);
+  };
+  out.querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => toggle(tr)));
+  if (list[0]?.status === 'diff') toggle(out.querySelector('tr.row'));
+}
+
+$('csv').addEventListener('click', () => {
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [['BB', 'sheet', 'jenis', 'baris_sistem', 'baris_september', 'kolom', 'nilai_sistem', 'nilai_september'].map(q).join(',')];
+  const add = row => lines.push(row.map(q).join(','));
+  state.results.results.forEach(r => r.sheets.forEach(s => {
+    const res = s.result;
+    if (!res || res.same) return;
+    res.pairs.forEach(p => p.diffs.forEach(c => add([r.bb, s.name, `isi beda (${p.how})`, p.a.line, p.b.line, c, p.a.row[c], p.b.row[c]])));
+    res.restA.forEach(it => add([r.bb, s.name, 'hanya di sistem', it.line, '', '', res.cols.map(c => `${c}=${it.row[c]}`).join(' | '), '']));
+    res.restB.forEach(it => add([r.bb, s.name, 'hanya di September', '', it.line, '', '', res.cols.map(c => `${c}=${it.row[c]}`).join(' | ')]));
+  }));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'banding_drop_file.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>
