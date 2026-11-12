@@ -105,7 +105,7 @@
       <li><b>Mirip</b>: sisa yang identitasnya pun beda dipasangkan ke baris paling mirip dengan Media_ID dan Show_Date sama (minimal separuh kolom sama). Ini tebakan, cek manual.</li>
       <li>Sisanya: <b>hanya di sistem</b> / <b>hanya di September</b>.</li>
     </ol>
-    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma.</p>
+    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma. Angka dibandingkan sampai 6 desimal, jadi sisa pembulatan Excel (mis. 1517556.000000104) dianggap sama dengan 1517556.</p>
     <div class="grid">
       <label>SpotMatch · kolom identitas<input type="text" id="spotmatch-ident"></label>
       <label>SpotMatch · kolom diabaikan<input type="text" id="spotmatch-ignore"></label>
@@ -129,6 +129,8 @@ const BB_RE = /(?<!\d)\d{10}(?!\d)/;
 const NUM_RE = /^-?[\d,]*\.?\d+$/;
 const ROW_LIMIT = 500;
 const PAIR_LIMIT = 4000000;
+// Excel macros leave float noise such as 1517556.000000104; anything finer than this is not a real difference.
+const DECIMALS = 6;
 const STATUS_ORDER = { diff: 0, unpaired: 1, same: 2 };
 const ANCHOR_COLS = ['Media_ID', 'Show_Date'];
 const DEFAULT_SETTINGS = {
@@ -146,7 +148,7 @@ function norm(v) {
     n = Number(t.replace(/,/g, ''));
   }
   if (!Number.isFinite(n)) return String(v).trim();
-  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(9)));
+  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(DECIMALS)));
 }
 
 function toTable(rows) {
