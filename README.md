@@ -12,7 +12,7 @@ Buka: https://jonathans-wpp.github.io/spot-matching-compare/
 
 Kolom identitas dan kolom yang diabaikan bisa diubah di panel **Cara mencocokkan baris**.
 
-Kolom biaya SpotPlan (`Net_Cost`, `CPRP_Cost`, `GroupCPRP`, `Gross_Cost`, `Cash_Discount`) dibanding sampai 2 desimal. Selisih di bawah itu (noise angka Excel) tidak dihitung beda, hanya ditandai kuning sebagai catatan.
+Kolom biaya SpotPlan (`Net_Cost`, `CPRP_Cost`, `GroupCPRP`, `Gross_Cost`, `Cash_Discount`) adalah kolom catatan: tidak dibanding (angka Excel-nya sering ada noise desimal), nilainya hanya ditandai kuning kalau tidak sama.
 
 ## Data
 
