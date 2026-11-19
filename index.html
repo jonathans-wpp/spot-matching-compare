@@ -133,7 +133,7 @@
 const BB_RE = /(?<!\d)\d{10}(?!\d)/;
 const ROW_LIMIT = 500;
 const PAIR_LIMIT = 4000000;
-const STATUS_ORDER = { diff: 0, unpaired: 1, same: 2 };
+const STATUS_ORDER = { diff: 0, note: 1, unpaired: 2, same: 3 };
 const ANCHOR_COLS = ['Media_ID', 'Show_Date'];
 const DEFAULT_SETTINGS = {
   spotmatch: { ident: ['Media_ID', 'Show_Date', 'Actual_Time'], ignore: ['Code', 'Item', 'ID'], note: [] },
@@ -266,6 +266,7 @@ function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [], note: [] }) 
     countA: A.body.length, countB: B.body.length,
     diffCount: pairs.length + restA.length + restB.length,
     same: !leftA.length && !leftB.length,
+    noteCount: [...matched, ...pairs].filter(p => p.noteDiffs.length).length,
   };
 }
 
@@ -308,12 +309,14 @@ function compareAll(unitsA, unitsB, settings = DEFAULT_SETTINGS) {
     });
     const compared = sheets.filter(s => s.result);
     const status = !compared.length ? 'unpaired'
-      : compared.every(s => s.result.same) ? 'same' : 'diff';
+      : !compared.every(s => s.result.same) ? 'diff'
+      : compared.some(s => s.result.noteCount) ? 'note' : 'same';
     const diffCount = compared.reduce((n, s) => n + s.result.diffCount, 0);
-    return { bb: g.bb, filesA: [...g.filesA], filesB: [...g.filesB], sheets, status, diffCount };
+    const noteCount = compared.reduce((n, s) => n + s.result.noteCount, 0);
+    return { bb: g.bb, filesA: [...g.filesA], filesB: [...g.filesB], sheets, status, diffCount, noteCount };
   });
   results.sort((x, y) => STATUS_ORDER[x.status] - STATUS_ORDER[y.status]
-    || y.diffCount - x.diffCount || x.bb.localeCompare(y.bb));
+    || y.diffCount - x.diffCount || y.noteCount - x.noteCount || x.bb.localeCompare(y.bb));
   return { results, warnings };
 }
 </script>
@@ -488,6 +491,9 @@ const side = s => (s.a ? 'Sistem' : 'September');
 const limitNote = n => (n > ROW_LIMIT ? `, tampil ${ROW_LIMIT} pertama` : '');
 const cellText = v => (v === '' ? '<span class="muted">(kosong)</span>' : esc(v));
 
+const sheetTag = r => (!r.same ? `<span class="tag bad">${r.diffCount} spot beda</span>`
+  : r.noteCount ? `<span class="tag warn">cost conflict · ${r.noteCount} spot</span>` : '<span class="tag good">sama</span>');
+
 function sheetCell(s) {
   if (!s.result) return `<div class="sheet"><b>${esc(s.name)}</b> <span class="muted">hanya di ${side(s)}, tidak dibanding</span></div>`;
   const r = s.result;
@@ -495,7 +501,7 @@ function sheetCell(s) {
   if (r.pairs.length) parts.push(`${r.pairs.length} isi beda`);
   if (r.restA.length) parts.push(`${r.restA.length} hanya sistem`);
   if (r.restB.length) parts.push(`${r.restB.length} hanya Sept`);
-  const tag = r.same ? '<span class="tag good">sama</span>' : `<span class="tag bad">${r.diffCount} spot beda</span>`;
+  const tag = sheetTag(r);
   return `<div class="sheet"><b>${esc(s.name)}</b> ${tag} <span class="muted">${parts.join(' · ')}</span></div>`;
 }
 
@@ -552,7 +558,7 @@ function detail(res) {
     if (!s.result) return `<h3>${esc(s.name)}</h3><p class="note muted">Sheet ini hanya ada di ${side(s)} (${esc((s.a || s.b).fileName)}), tidak dibanding.</p>`;
     const r = s.result;
     const notes = [
-      r.same ? `Semua ${r.matched.length} spot sama.` : `${r.matched.length} spot cocok, ${r.pairs.length} spot isi beda, ${r.restA.length} hanya di sistem, ${r.restB.length} hanya di September.`,
+      r.same ? `Semua ${r.matched.length} spot cocok${r.noteCount ? `, ${r.noteCount} spot cost conflict` : ''}.` : `${r.matched.length} spot cocok, ${r.pairs.length} spot isi beda, ${r.restA.length} hanya di sistem, ${r.restB.length} hanya di September.`,
       r.diffCols.length ? `Kolom yang beda: ${r.diffCols.map(([c, n]) => `${c} (${n} spot)`).join(', ')}` : '',
       r.noted.length ? `Kolom catatan (tidak dibanding): ${r.noted.join(', ')}` : '',
       r.noteCols.length ? `Catatan, nilai sistem dan September tidak sama (sel kuning): ${r.noteCols.map(([c, n]) => `${c} (${n} spot)`).join(', ')}` : '',
@@ -563,7 +569,7 @@ function detail(res) {
       r.onlyColsB.length ? `Kolom hanya di September (tidak dibanding): ${r.onlyColsB.join(', ')}` : '',
       r.tooMany ? 'Terlalu banyak baris tanpa pasangan untuk dicari yang mirip. Cek kolom identitas di pengaturan.' : '',
     ].filter(Boolean).map(t => `<p class="note">${esc(t)}</p>`).join('');
-    const tag = r.same ? '<span class="tag good">sama</span>' : `<span class="tag bad">${r.diffCount} spot beda</span>`;
+    const tag = sheetTag(r);
     return `<details class="sheetblock">
       <summary class="sheethead">${esc(s.name)} ${tag} <span class="muted">· ${esc(s.a.sheetName)} ↔ ${esc(s.b.sheetName)}</span></summary>
       <div class="sheetbody">${notes}
@@ -585,6 +591,7 @@ function render() {
   const list = $('onlyDiff').checked ? results.filter(r => r.status !== 'same') : results;
   const STATUS = {
     same: () => '<span class="tag good">Sama</span>',
+    note: r => `<span class="tag warn">Cost conflict · ${r.noteCount} spot</span>`,
     diff: r => `<span class="tag bad">Beda · ${r.diffCount} spot</span>`,
     unpaired: () => '<span class="tag warn">Tidak ada pasangan</span>',
   };
@@ -593,6 +600,7 @@ function render() {
       <div class="stat"><b>${results.length}</b>BB</div>
       <div class="stat"><b style="color:var(--good)">${count('same')}</b>sama</div>
       <div class="stat"><b style="color:var(--bad)">${count('diff')}</b>beda</div>
+      <div class="stat"><b style="color:var(--warn)">${count('note')}</b>cost conflict</div>
       <div class="stat"><b style="color:var(--warn)">${count('unpaired')}</b>tanpa pasangan</div>
     </div>
     ${warnings.map(w => `<p class="note"><span class="tag warn">Perhatian</span> ${esc(w)}</p>`).join('')}
