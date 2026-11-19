@@ -12,6 +12,8 @@ Buka: https://jonathans-wpp.github.io/spot-matching-compare/
 
 Kolom identitas dan kolom yang diabaikan bisa diubah di panel **Cara mencocokkan baris**.
 
+Kolom biaya SpotPlan (`Net_Cost`, `CPRP_Cost`, `GroupCPRP`, `Gross_Cost`, `Cash_Discount`) dibanding sampai 2 desimal. Selisih di bawah itu (noise angka Excel) tidak dihitung beda, hanya ditandai kuning sebagai catatan.
+
 ## Data
 
 File hanya dibaca di browser dan tidak dikirim ke mana pun. File, pengaturan, dan status banding disimpan di browser (IndexedDB dan localStorage), jadi tetap ada setelah refresh. Tombol **×** menghapus satu file, **Reset** menghapus semuanya.

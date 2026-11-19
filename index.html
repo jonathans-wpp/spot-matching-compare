@@ -64,7 +64,9 @@
   .tag.good { background: var(--good-soft); color: var(--good); }
   .tag.bad { background: var(--bad-soft); color: var(--bad); }
   .tag.warn { background: var(--warn-soft); color: var(--warn); }
-  .sheet { white-space: nowrap; }
+  table.main { table-layout: fixed; min-width: 760px; }
+  table.main > tbody > tr > td { overflow-wrap: anywhere; }
+  .approx { background: var(--warn-soft); color: var(--warn); }
   .muted { color: var(--muted); }
   tr.detail > td { background: var(--bg); }
   .detail h3 { font-size: 14px; margin: 12px 0 6px; }
@@ -105,18 +107,21 @@
       <li><b>Mirip</b>: sisa yang identitasnya pun beda dipasangkan ke baris paling mirip dengan Media_ID dan Show_Date sama (minimal separuh kolom sama). Ini tebakan, cek manual.</li>
       <li>Sisanya: <b>hanya di sistem</b> / <b>hanya di September</b>.</li>
     </ol>
-    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma. Nilai dibandingkan persis: angka tanpa pembulatan, teks termasuk spasi dan nol di depan.</p>
+    <p class="muted">Kolom diabaikan berisi nomor urut baris (berubah kalau urutan beda), jadi tidak dibanding. Pisahkan nama kolom dengan koma. Nilai dibandingkan persis: angka tanpa pembulatan, teks termasuk spasi dan nol di depan. Kecuali kolom biaya: dibanding sampai 2 desimal, selisih di bawahnya hanya jadi catatan.</p>
     <div class="grid">
       <label>SpotMatch · kolom identitas<input type="text" id="spotmatch-ident"></label>
       <label>SpotMatch · kolom diabaikan<input type="text" id="spotmatch-ignore"></label>
       <label>SpotPlan · kolom identitas<input type="text" id="spotplan-ident"></label>
       <label>SpotPlan · kolom diabaikan<input type="text" id="spotplan-ignore"></label>
+      <label>SpotMatch · kolom biaya (2 desimal)<input type="text" id="spotmatch-round"></label>
+      <label>SpotPlan · kolom biaya (2 desimal)<input type="text" id="spotplan-round"></label>
     </div>
   </details>
 
   <div class="bar">
     <button class="primary" id="run" disabled>Bandingkan</button>
     <button id="csv" disabled>Download CSV beda</button>
+    <button id="expand" disabled>Buka semua</button>
     <button id="reset">Reset</button>
     <label class="check"><input type="checkbox" id="onlyDiff"> Hanya yang beda</label>
   </div>
@@ -131,9 +136,21 @@ const PAIR_LIMIT = 4000000;
 const STATUS_ORDER = { diff: 0, unpaired: 1, same: 2 };
 const ANCHOR_COLS = ['Media_ID', 'Show_Date'];
 const DEFAULT_SETTINGS = {
-  spotmatch: { ident: ['Media_ID', 'Show_Date', 'Actual_Time'], ignore: ['Code', 'Item', 'ID'] },
-  spotplan: { ident: ['Media_ID', 'Show_Date', 'Start_Time', 'Length', 'Material_ID'], ignore: ['Item', 'ID', 'Adept_Code', 'Row_ID'] },
+  spotmatch: { ident: ['Media_ID', 'Show_Date', 'Actual_Time'], ignore: ['Code', 'Item', 'ID'], round: [] },
+  spotplan: {
+    ident: ['Media_ID', 'Show_Date', 'Start_Time', 'Length', 'Material_ID'], ignore: ['Item', 'ID', 'Adept_Code', 'Row_ID'],
+    round: ['Net_Cost', 'CPRP_Cost', 'GroupCPRP', 'Gross_Cost', 'Cash_Discount'],
+  },
 };
+
+// Excel stores cost columns with float noise (1000.0000000001), so they are compared to 2 decimals.
+function roundedValue(round) {
+  return (row, c) => {
+    const v = row[c];
+    if (!round.includes(c) || v.trim() === '' || !isFinite(v)) return v;
+    return String(Math.round(Number(v) * 100) / 100);
+  };
+}
 
 // Values are compared exactly: String(number) is the shortest text that round-trips to the same
 // double, so two different numbers never look alike, and text keeps its spaces and leading zeros.
@@ -160,11 +177,11 @@ function toTable(rows) {
   return { header, body };
 }
 
-function greedyPair(listA, listB, cols, accept, how) {
+function greedyPair(listA, listB, cols, accept, how, val) {
   const cand = [];
   listA.forEach((a, i) => listB.forEach((b, j) => {
     if (!accept(a, b)) return;
-    cand.push({ i, j, score: cols.reduce((n, c) => n + (a.row[c] === b.row[c]), 0) });
+    cand.push({ i, j, score: cols.reduce((n, c) => n + (val(a.row, c) === val(b.row, c)), 0) });
   }));
   cand.sort((x, y) => y.score - x.score || x.i - y.i || x.j - y.j);
   const usedA = new Set(), usedB = new Set(), pairs = [];
@@ -172,7 +189,7 @@ function greedyPair(listA, listB, cols, accept, how) {
     if (usedA.has(i) || usedB.has(j)) return;
     usedA.add(i); usedB.add(j);
     const a = listA[i], b = listB[j];
-    pairs.push({ a, b, how, diffs: cols.filter(c => a.row[c] !== b.row[c]) });
+    pairs.push({ a, b, how, diffs: cols.filter(c => val(a.row, c) !== val(b.row, c)) });
   });
   return {
     pairs,
@@ -181,15 +198,18 @@ function greedyPair(listA, listB, cols, accept, how) {
   };
 }
 
-function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [] }) {
+function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [], round: [] }) {
   const A = toTable(rowsA), B = toTable(rowsB);
   const shared = A.header.filter(h => B.header.includes(h));
   const ignored = shared.filter(h => cfg.ignore.includes(h));
   const cols = shared.filter(h => !ignored.includes(h));
+  const round = cfg.round || [];
+  const val = roundedValue(round);
+  const approxOf = (a, b) => cols.filter(c => round.includes(c) && a.row[c] !== b.row[c] && val(a.row, c) === val(b.row, c));
   const group = body => {
     const m = new Map();
     body.forEach(({ line, row }) => {
-      const k = JSON.stringify(cols.map(c => row[c]));
+      const k = JSON.stringify(cols.map(c => val(row, c)));
       if (!m.has(k)) m.set(k, []);
       m.get(k).push({ line, row });
     });
@@ -200,7 +220,7 @@ function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [] }) {
   gA.forEach((items, k) => {
     const other = gB.get(k) || [];
     const n = Math.min(items.length, other.length);
-    for (let i = 0; i < n; i++) matched.push({ a: items[i], b: other[i] });
+    for (let i = 0; i < n; i++) matched.push({ a: items[i], b: other[i], approx: approxOf(items[i], other[i]) });
     leftA.push(...items.slice(n));
   });
   gB.forEach((items, k) => leftB.push(...items.slice(gA.get(k)?.length || 0)));
@@ -210,14 +230,14 @@ function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [] }) {
   const pairs = [];
   let restA = leftA, restB = leftB;
   if (cfg.ident.length && !identMissing.length) {
-    const idKey = it => JSON.stringify(cfg.ident.map(c => it.row[c]));
+    const idKey = it => JSON.stringify(cfg.ident.map(c => val(it.row, c)));
     const poolB = new Map();
     restB.forEach(b => { if (!poolB.has(idKey(b))) poolB.set(idKey(b), []); poolB.get(idKey(b)).push(b); });
     const poolA = new Map();
     restA.forEach(a => { if (!poolA.has(idKey(a))) poolA.set(idKey(a), []); poolA.get(idKey(a)).push(a); });
     const nextA = [], nextB = [];
     poolA.forEach((as, k) => {
-      const r = greedyPair(as, poolB.get(k) || [], cols, () => true, 'identitas');
+      const r = greedyPair(as, poolB.get(k) || [], cols, () => true, 'identitas', val);
       pairs.push(...r.pairs); nextA.push(...r.restA); nextB.push(...r.restB);
       poolB.delete(k);
     });
@@ -231,20 +251,25 @@ function compareTables(rowsA, rowsB, cfg = { ident: [], ignore: [] }) {
     else {
       const anchor = ANCHOR_COLS.filter(c => cols.includes(c));
       const minSame = Math.ceil(cols.length / 2);
-      const r = greedyPair(restA, restB, cols, (a, b) => anchor.every(c => a.row[c] === b.row[c])
-        && cols.reduce((n, c) => n + (a.row[c] === b.row[c]), 0) >= minSame, 'mirip');
+      const r = greedyPair(restA, restB, cols, (a, b) => anchor.every(c => val(a.row, c) === val(b.row, c))
+        && cols.reduce((n, c) => n + (val(a.row, c) === val(b.row, c)), 0) >= minSame, 'mirip', val);
       pairs.push(...r.pairs); restA = r.restA; restB = r.restB;
     }
   }
   const byLine = (x, y) => x.line - y.line;
   restA.sort(byLine); restB.sort(byLine);
   pairs.sort((x, y) => x.a.line - y.a.line);
+  pairs.forEach(p => { p.approx = approxOf(p.a, p.b); });
 
-  const diffCols = {};
-  pairs.forEach(p => p.diffs.forEach(c => { diffCols[c] = (diffCols[c] || 0) + 1; }));
+  const countCols = (list, key) => {
+    const n = {};
+    list.forEach(p => p[key].forEach(c => { n[c] = (n[c] || 0) + 1; }));
+    return Object.entries(n).sort((x, y) => y[1] - x[1]);
+  };
   return {
     cols, shared, ignored, ident: cfg.ident, identMissing, matched, pairs, restA, restB, tooMany,
-    diffCols: Object.entries(diffCols).sort((x, y) => y[1] - x[1]),
+    diffCols: countCols(pairs, 'diffs'),
+    approxCols: countCols([...matched, ...pairs], 'approx'),
     onlyColsA: A.header.filter(h => !B.header.includes(h)),
     onlyColsB: B.header.filter(h => !A.header.includes(h)),
     countA: A.body.length, countB: B.body.length,
@@ -430,6 +455,7 @@ function applyPrefs(prefs) {
   Object.entries(DEFAULT_SETTINGS).forEach(([kind, cfg]) => {
     $(`${kind}-ident`).value = prefs.inputs?.[`${kind}-ident`] ?? cfg.ident.join(', ');
     $(`${kind}-ignore`).value = prefs.inputs?.[`${kind}-ignore`] ?? cfg.ignore.join(', ');
+    $(`${kind}-round`).value = prefs.inputs?.[`${kind}-round`] ?? cfg.round.join(', ');
   });
   $('onlyDiff').checked = !!prefs.onlyDiff;
 }
@@ -437,6 +463,7 @@ function applyPrefs(prefs) {
 const readSettings = () => Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(kind => [kind, {
   ident: splitList($(`${kind}-ident`).value),
   ignore: splitList($(`${kind}-ignore`).value),
+  round: splitList($(`${kind}-round`).value),
 }]));
 const units = side => state[side].flatMap(f => splitUnits(f.name, f.sheets));
 
@@ -482,9 +509,11 @@ function sheetCell(s) {
 }
 
 const head = r => r.shared.map(c => `<th${r.ignored.includes(c) ? ' class="seq" title="nomor urut, tidak dibanding"' : ''}>${esc(c)}</th>`).join('');
-const cells = (r, it, diffs = []) => r.shared.map(c => {
-  const cls = r.ignored.includes(c) ? 'seq' : diffs.includes(c) ? 'diff' : '';
-  return `<td${cls ? ` class="${cls}"` : ''}>${cellText(it.row[c])}</td>`;
+// `approx` cells differ only below 2 decimals; their tooltip shows both raw values.
+const cells = (r, it, diffs = [], approx = [], tip = () => '') => r.shared.map(c => {
+  const cls = r.ignored.includes(c) ? 'seq' : diffs.includes(c) ? 'diff' : approx.includes(c) ? 'approx' : '';
+  const title = approx.includes(c) ? ` title="${esc(tip(c))}"` : '';
+  return `<td${cls ? ` class="${cls}"` : ''}${title}>${cellText(it.row[c])}</td>`;
 }).join('');
 
 function rowsTable(r, items, title) {
@@ -501,9 +530,10 @@ const HOW = {
 };
 
 // Two rows per spot, system above September; `extra` adds leading cells such as how the pair was made.
-function pairRows(r, a, b, diffs = [], extra = () => '') {
+function pairRows(r, a, b, diffs = [], extra = () => '', approx = []) {
+  const tip = c => `Sistem ${a.row[c]} · September ${b.row[c]}`;
   const row = (label, it, cls, first) => `<tr class="${cls}"><td><b>${label}</b></td><td>${it.line}</td>
-    ${extra(first)}${cells(r, it, diffs)}</tr>`;
+    ${extra(first)}${cells(r, it, diffs, approx, tip)}</tr>`;
   return row('Sistem', a, 'pa', true) + row('September', b, 'pb', false);
 }
 
@@ -512,7 +542,7 @@ function pairsTable(r) {
   return `<h3>Spot sama, isi beda (${r.pairs.length}${limitNote(r.pairs.length)})</h3>
     <p class="note muted">Tiap spot 2 baris: sistem di atas, September di bawah. Sel merah = nilai yang beda. Kolom abu-abu = nomor urut, tidak dibanding.</p>
     <div class="scroll"><table class="pairs"><tr><th>File</th><th>Baris</th><th>Dipasang lewat</th>${head(r)}</tr>
-    ${r.pairs.slice(0, ROW_LIMIT).map(p => pairRows(r, p.a, p.b, p.diffs, first => `<td>${first ? HOW[p.how] : ''}</td>`)).join('')}
+    ${r.pairs.slice(0, ROW_LIMIT).map(p => pairRows(r, p.a, p.b, p.diffs, first => `<td>${first ? HOW[p.how] : ''}</td>`, p.approx)).join('')}
     </table></div>`;
 }
 
@@ -521,7 +551,7 @@ function matchedTable(r) {
   return `<details open><summary>Spot yang cocok (${r.matched.length}${limitNote(r.matched.length)})</summary>
     <p class="note muted">Tiap spot 2 baris: sistem di atas, September di bawah. Semua kolom yang dibanding sama persis.</p>
     <div class="scroll"><table class="pairs"><tr><th>File</th><th>Baris</th>${head(r)}</tr>
-    ${r.matched.slice(0, ROW_LIMIT).map(m => pairRows(r, m.a, m.b)).join('')}
+    ${r.matched.slice(0, ROW_LIMIT).map(m => pairRows(r, m.a, m.b, [], undefined, m.approx)).join('')}
     </table></div></details>`;
 }
 
@@ -532,6 +562,7 @@ function detail(res) {
     const notes = [
       r.same ? `Semua ${r.matched.length} spot sama.` : `${r.matched.length} spot cocok, ${r.pairs.length} spot isi beda, ${r.restA.length} hanya di sistem, ${r.restB.length} hanya di September.`,
       r.diffCols.length ? `Kolom yang beda: ${r.diffCols.map(([c, n]) => `${c} (${n} spot)`).join(', ')}` : '',
+      r.approxCols.length ? `Beda di bawah 2 desimal, tidak dihitung beda (sel kuning): ${r.approxCols.map(([c, n]) => `${c} (${n} spot)`).join(', ')}` : '',
       r.ident.length && !r.identMissing.length ? `Kolom identitas: ${r.ident.join(', ')}` : '',
       r.identMissing.length ? `Kolom identitas tidak ada di sheet ini: ${r.identMissing.join(', ')}. Pasangan hanya lewat kemiripan.` : '',
       r.ignored.length ? `Tidak dibanding (nomor urut): ${r.ignored.join(', ')}` : '',
@@ -552,6 +583,9 @@ function detail(res) {
 
 function render() {
   const out = $('out');
+  const expand = $('expand');
+  expand.textContent = 'Buka semua';
+  expand.disabled = true;
   if (!state.results) { out.innerHTML = '<div class="card empty">Belum ada hasil.</div>'; return; }
   const { results, warnings } = state.results;
   const count = st => results.filter(r => r.status === st).length;
@@ -569,7 +603,8 @@ function render() {
       <div class="stat"><b style="color:var(--warn)">${count('unpaired')}</b>tanpa pasangan</div>
     </div>
     ${warnings.map(w => `<p class="note"><span class="tag warn">Perhatian</span> ${esc(w)}</p>`).join('')}
-    <div class="card scroll"><table>
+    <div class="card scroll"><table class="main">
+      <colgroup><col style="width:110px"><col style="width:22%"><col style="width:22%"><col><col style="width:150px"></colgroup>
       <tr><th>BB</th><th>File sistem</th><th>File September</th><th>Sheet</th><th>Status</th></tr>
       ${list.length ? list.map((r, i) => `
         <tr class="row" data-i="${i}"><td><b>${esc(r.bb)}</b></td>
@@ -579,13 +614,21 @@ function render() {
         <tr class="detail" data-for="${i}" hidden><td colspan="5"></td></tr>`).join('')
         : '<tr><td colspan="5" class="empty">Semua sama.</td></tr>'}
     </table></div>`;
-  const toggle = tr => {
-    const d = out.querySelector(`tr.detail[data-for="${tr.dataset.i}"]`);
-    if (!d.dataset.ready) { d.firstElementChild.innerHTML = detail(list[tr.dataset.i]); d.dataset.ready = '1'; }
-    d.hidden = !d.hidden;
-    tr.classList.toggle('open', !d.hidden);
+  const rows = [...out.querySelectorAll('tr.row')];
+  const details = [...out.querySelectorAll('tr.detail')];
+  const allOpen = () => details.every(d => !d.hidden);
+  const syncExpand = () => { expand.textContent = allOpen() ? 'Tutup semua' : 'Buka semua'; };
+  const toggle = (tr, open) => {
+    const d = details[tr.dataset.i];
+    if (open === undefined) open = d.hidden;
+    if (open && !d.dataset.ready) { d.firstElementChild.innerHTML = detail(list[tr.dataset.i]); d.dataset.ready = '1'; }
+    d.hidden = !open;
+    tr.classList.toggle('open', open);
+    syncExpand();
   };
-  out.querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => toggle(tr)));
+  rows.forEach(tr => tr.addEventListener('click', () => toggle(tr)));
+  expand.disabled = !rows.length;
+  expand.onclick = () => { const open = !allOpen(); rows.forEach(tr => toggle(tr, open)); };
   if (list[0]?.status === 'diff') toggle(out.querySelector('tr.row'));
 }
 
